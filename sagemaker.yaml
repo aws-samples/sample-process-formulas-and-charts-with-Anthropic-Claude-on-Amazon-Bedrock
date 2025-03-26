@@ -1,0 +1,190 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template for SageMaker Notebook Instance with Bedrock access (uksb-8i49gp4uxs).
+
+Parameters:
+  CodeBucket:
+    Type: String
+    Description: The bucket where the code is stored
+  CodeKeyPath:
+    Type: String
+    Description: The key path where the code is stored
+
+Resources:
+  KnowledgeBaseS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-kb-${AWS::Region}-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Suspended
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W51
+            reason: "Bucket is used for Knowledge Base sample data and removed on cleanup - account access is enabled and public access is disabled"
+          - id: W35
+            reason: "Bucket is used for Knowledge Base sample data and removed on cleanup - logging not necessary"
+
+  NotebookLifecycleConfig:
+    Type: 'AWS::SageMaker::NotebookInstanceLifecycleConfig'
+    Properties:
+      NotebookInstanceLifecycleConfigName: !Sub '${AWS::StackName}-lifecycle-config'
+      OnCreate:
+        - Content: 
+            Fn::Base64: 
+              !Sub |
+                #!/bin/bash
+                set -e
+                sudo -u ec2-user -i <<'EOF'
+
+                aws s3 sync s3://\${CodeBucket}/${CodeKeyPath}/ ./SageMaker/notebooks/
+                echo BUCKET_NAME=\${KnowledgeBaseS3Bucket} > ./SageMaker/notebooks/.env
+
+                EOF
+
+  # IAM Role for SageMaker Notebook Instance
+  SageMakerNotebookRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sagemaker.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonSageMakerFullAccess'
+      Policies:
+        - PolicyName: ExtendedAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:CreateBucket'
+                  - 's3:ListBucket'
+                  - 's3:GetObject'
+                  - 's3:PutObject'
+                  - 's3:DeleteObject'
+                  - 's3:DeleteBucket'
+                  - 's3:ListBucketVersions'
+                  - 's3:DeleteObjectVersion'
+                Resource:
+                  - !Sub 'arn:aws:s3:::${KnowledgeBaseS3Bucket}'
+                  - !Sub 'arn:aws:s3:::${KnowledgeBaseS3Bucket}/*'
+                  - !Sub 'arn:aws:s3:::${CodeBucket}/'
+                  - !Sub 'arn:aws:s3:::${CodeBucket}/*'
+              - Effect: Allow
+                Action:
+                  - 'iam:CreateRole'
+                  - 'iam:GetRole'
+                  - 'iam:AttachRolePolicy'
+                  - 'iam:CreatePolicy'
+                  - 'iam:GetPolicy'
+                  - 'iam:ListAttachedRolePolicies'
+                  - 'iam:PassRole'
+                  - 'iam:DetachRolePolicy'
+                  - 'iam:DeletePolicy'
+                  - 'iam:DeleteRole'
+                Resource:
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/amazon-bedrock-*'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:policy/bedrock-kb-*'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:policy/Bedrock*'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/Bedrock*'
+              - Effect: Allow
+                Action:
+                  - 'aoss:CreateCollection'
+                  - 'aoss:BatchGetCollection'
+                  - 'aoss:DeleteCollection'
+                  - 'aoss:APIAccessAll'
+                Resource:
+                  - !Sub 'arn:aws:aoss:${AWS::Region}:${AWS::AccountId}:collection/*'
+              - Effect: Allow
+                Action:
+                  - 'aoss:BatchGetCollection'
+                  - 'aoss:CreateSecurityPolicy'
+                  - 'aoss:GetSecurityPolicy'
+                  - 'aoss:CreateAccessPolicy'
+                  - 'aoss:GetAccessPolicy'
+                  - 'aoss:DeleteAccessPolicy'
+                  - 'aoss:DeleteSecurityPolicy'
+                  - 'aoss:APIAccessAll'
+                Resource: '*'
+                Condition: 
+                  StringLike:
+                    'aoss:collection': 'bedrock*'
+              - Effect: Allow
+                Action:
+                  - 'aoss:CreateSecurityPolicy'
+                  - 'aoss:GetSecurityPolicy'
+                  - 'aoss:CreateAccessPolicy'
+                  - 'aoss:GetAccessPolicy'
+                  - 'aoss:DeleteAccessPolicy'
+                  - 'aoss:DeleteSecurityPolicy'
+                Resource: '*'
+                Condition: 
+                  StringLike:
+                    'aoss:index': 'bedrock*'
+              - Effect: Allow
+                Action:
+                  - 'bedrock:CreateKnowledgeBase'
+                  - 'bedrock:GetKnowledgeBase'
+                  - 'bedrock:ListKnowledgeBases'
+                  - 'bedrock:DeleteKnowledgeBase'
+                  - 'bedrock:CreateDataSource'
+                  - 'bedrock:GetDataSource'
+                  - 'bedrock:ListDataSources'
+                  - 'bedrock:DeleteDataSource'
+                  - 'bedrock:StartIngestionJob'
+                  - 'bedrock:GetIngestionJob'
+                  - 'bedrock:Retrieve'
+                  - 'bedrock:RetrieveAndGenerate'
+                  - 'bedrock:InvokeModel'
+                  - 'bedrock:InvokeModelWithResponseStream'
+                  - 'bedrock:GetInferenceProfile'
+                Resource:
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:data-source/*'
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*'
+                  - !Sub 'arn:aws:bedrock:us-*::foundation-model/*'
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/*'
+
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W11
+            reason: "Wildcard resource in IAM policy for AOSS is limited by condition statement"
+
+  # SageMaker Notebook Instance
+  SageMakerNotebook:
+    Type: 'AWS::SageMaker::NotebookInstance'
+    Properties:
+      NotebookInstanceName: !Sub '${AWS::StackName}-notebook'
+      InstanceType: 'ml.t3.medium'
+      RoleArn: !GetAtt SageMakerNotebookRole.Arn
+      PlatformIdentifier: 'notebook-al2-v2'
+      VolumeSizeInGB: 5
+      LifecycleConfigName: !GetAtt NotebookLifecycleConfig.NotebookInstanceLifecycleConfigName
+
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W1201
+            reason: "Notebook is used for learning example and does not process sensitive data"
+
+Outputs:
+  NotebookInstanceName:
+    Description: Name of the SageMaker Notebook Instance
+    Value: !Ref SageMakerNotebook
+  NotebookInstanceUrl:
+    Description: URL of the SageMaker Notebook Instance
+    Value: !Sub 'https://console.aws.amazon.com/sagemaker/home?region=${AWS::Region}#/notebook-instances/openNotebook/${AWS::StackName}-notebook'
