@@ -109,17 +109,17 @@ The deploy.sh script will generate a cleanup.sh file. When you are done testing 
 ```
 
 
-## Contributing
 
-Contributions to improve the notebook or add new processing capabilities are welcome. Please submit pull requests or open issues for discussion.
+## Security
+
+See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
 
 ## License
 
-[Your chosen license]
+This library is licensed under the MIT-0 License. See the LICENSE file.
 
 ## Acknowledgments
 
 - ArXiv for providing access to scientific papers
 - Amazon Bedrock and Claude model for document processing capabilities
 
-This README now focuses on the notebook as the primary component while treating the knowledge base management system as a supporting feature.
